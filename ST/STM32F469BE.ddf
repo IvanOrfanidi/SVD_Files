@@ -1,0 +1,46 @@
+
+;; Architecture extensions
+#include weak "..\ARM\ARMv7-M-ETM.ddf"
+#include weak "..\ARM\ARMv7-M-TPIU.ddf"
+#include weak "..\ARM\ARMv7-M-MPU.ddf"
+
+;; Memory information ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; 
+;; Used to define address zones within the ARM address space (Memory). 
+;;
+;;   Name      may be almost anything
+;;   AdrSpace  must be Memory
+;;   StartAdr  start of memory block
+;;   EndAdr    end of memory block
+;;   AccType   type of access, read-only (R), read-write (RW) or SFR (W)
+
+[Memory]
+;;         Name             AdrSpace    StartAdr    EndAdr      AccType   Width
+Memory =  RemapMem         Memory      0x00000000  0x001FFFFF  RW 
+Memory =  ROM              Memory      0x1FFF0000  0x1FFF7A0F  R  
+Memory =  OptionBytes0     Memory      0x1FFEC000  0x1FFEC03F  W  
+Memory =  OptionBytes1     Memory      0x1FFFC000  0x1FFFC03F  W  
+Memory =  Periph0          Memory      0x40000000  0x40007FFF  W  
+Memory =  Periph1          Memory      0x40010000  0x400173FF  W  
+Memory =  Periph2          Memory      0x40020000  0x4007FFFF  W  
+Memory =  Periph3          Memory      0x50000000  0x50060BFF  W  
+Memory =  Periph4          Memory      0xA0000000  0xA0001FFF  W  
+Memory =  Periph0_BitBand  Memory      0x42000000  0x420FFFFF  W  
+Memory =  Periph1_BitBand  Memory      0x42200000  0x422E7FFF  W  
+Memory =  Periph2_BitBand  Memory      0x42400000  0x42FFFFFF  W  
+Memory =  QSPI_Flash       Memory      0x90000000  0x9FFFFFFF  R  
+Memory =  SystemSFR        Memory      0xE0000000  0xE00FFFFF  W  
+Memory =  ExtDev0          Memory      0x60000000  0x6FFFFFFF  W  
+Memory =  ExtDev1          Memory      0x80000000  0x8FFFFFFF  W  
+Memory =  ExtDev2          Memory      0xC0000000  0xCFFFFFFF  W  
+Memory =  ExtDev3          Memory      0xD0000000  0xDFFFFFFF  W  
+Memory =  CCM_RAM          Memory      0x10000000  0x1000FFFF  RW 
+Memory =  Flash            Memory      0x08000000  0x0807FFFF  R  
+Memory =  RAM              Memory      0x20000000  0x2004FFFF  RW 
+Memory =  RAM_BitBand      Memory      0x22000000  0x229FFFFF  RW 
+
+TrustedRanges = true
+UseSfrFilter = true
+
+[SfrInclude]
+File = STM32F469.svd

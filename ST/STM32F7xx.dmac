@@ -1,0 +1,336 @@
+execConfigureTraceETM()
+{
+  __var value;
+
+  value = __readMemory32(0x40023810, "Memory");
+  value &= ~0x00000010;                        // bit4 release GPIOE reset
+  __writeMemory32(value, 0x40023810, "Memory");
+
+  value = __readMemory32(0x40023830, "Memory");
+  value |= 0x00000010;                        // bit4 Enable GPIOE  clock
+  __writeMemory32(value, 0x40023830, "Memory");
+  
+  value = __readMemory32(0xE0042004, "Memory");
+  // STM32 specific register Debug MCU configuration: => Trace_IOEN
+  // DBG_MCU_CR : assign SYNC TRACE I/Os for
+  // this outputs a sync packet of FF_FF_FF_7F
+  // TRACE_IOEN = 1, DBG_SLEEP = 0, DBG_STOP = 0, DBG_STANDBY = 0 ???
+  value &= ~0xE0;
+  
+  // RCC_APB2ENR enable SYSCFG clock
+  __writeMemory32(__readMemory32(0x40023844, "Memory") | 0x4000 , 0x40023844, "Memory");
+  
+  // SYSCFG_CMPCR
+  // Try to enable I/O compensation cell
+  __writeMemory32(0x1, 0x40013820, "Memory");
+  
+  if ( __getTracePortSize() == 1 )
+  {
+    value |= 0x60; // bit 6,5  TRACE_MODE=01 TRACE_IOEN=1
+    __writeMemory32(value, 0xE0042004, "Memory");
+    
+    // Configure GPIOE  2,3 as AF
+    value = __readMemory32(0x40021000, "Memory");
+    value &= ~0x000000F0;
+    value |= 0x000000A0;                        
+    __writeMemory32(value, 0x40021000, "Memory");
+     
+    // Configure GPIOE  2,3 output type push-pull
+    value = __readMemory32(0x40021004, "Memory");
+    value &= ~0x0000000C;
+    __writeMemory32(value, 0x40021004, "Memory");
+
+    // Configure GPIOE  2,3 No pull-up, pull-down
+    value = __readMemory32(0x4002100C, "Memory");
+    value &= ~0x000000F0;
+    __writeMemory32(value, 0x4002100C, "Memory");
+     
+    // Configure GPIOE 2,3 as High Speed
+    value = __readMemory32(0x40021008, "Memory");
+    value |= 0x000000F0;
+    __writeMemory32(value, 0x40021008, "Memory");
+
+    // Enable mode AF0 for GPIOE 2,3
+    value = __readMemory32(0x40021020, "Memory");
+    value &= ~0x0000FF00;
+    __writeMemory32(value, 0x40021020, "Memory");
+  } 
+  else
+  if ( __getTracePortSize() == 2 )
+  {
+    value |= 0xA0; // bit 7,6,5  TRACE_MODE=10 TRACE_IOEN=1
+    __writeMemory32(value, 0xE0042004, "Memory");
+    
+    // Configure GPIOE  2,3,4 as AF
+    value = __readMemory32(0x40021000, "Memory");
+    value &= ~0x000003F0;
+    value |= 0x000002A0;                        
+    __writeMemory32(value, 0x40021000, "Memory");
+     
+    // Configure GPIOE  2,3,4 output type push-pull
+    value = __readMemory32(0x40021004, "Memory");
+    value &= ~0x0000001C;
+    __writeMemory32(value, 0x40021004, "Memory");
+
+    // Configure GPIOE  2,3,4 No pull-up, pull-down
+    value = __readMemory32(0x4002100C, "Memory");
+    value &= ~0x000003F0;
+    __writeMemory32(value, 0x4002100C, "Memory");
+     
+    // Configure GPIOE 2,3,4 as High Speed
+    value = __readMemory32(0x40021008, "Memory");
+    value |= 0x000003F0;
+    __writeMemory32(value, 0x40021008, "Memory");
+
+    // Enable mode AF0 for GPIOE 2,3,4
+    value = __readMemory32(0x40021020, "Memory");
+    value &= ~0x000FFF00;
+    __writeMemory32(value, 0x40021020, "Memory");
+  } 
+  else   // default 4 bits
+  {
+    value |= 0xE0; // bit 7,6,5  TRACE_MODE=11 TRACE_IOEN=1
+    __writeMemory32(value, 0xE0042004, "Memory");
+    
+    // Configure GPIOE  2,3,4,5,6 as AF
+    value = __readMemory32(0x40021000, "Memory");
+    value &= ~0x00003FF0;
+    value |= 0x00002AA0;                        
+    __writeMemory32(value, 0x40021000, "Memory");
+     
+    // Configure GPIOE  2,3,4,5,6 output type push-pull
+    value = __readMemory32(0x40021004, "Memory");
+    value &= ~0x0000007C;
+    __writeMemory32(value, 0x40021004, "Memory");
+
+    // Configure GPIOE  2,3,4,5,6  No pull-up, pull-down
+    value = __readMemory32(0x4002100C, "Memory");
+    value &= ~0x00003FF0;
+    __writeMemory32(value, 0x4002100C, "Memory");
+     
+    // Configure GPIOE 2,3,4,5,6 as High Speed
+    value = __readMemory32(0x40021008, "Memory");
+    value |= 0x00003FF0;
+    __writeMemory32(value, 0x40021008, "Memory");
+
+    // Enable mode AF0 for GPIOE 2,3,4,5,6
+    value = __readMemory32(0x40021020, "Memory");
+    value &= ~0x0FFFFF00;
+    __writeMemory32(value, 0x40021020, "Memory");
+  }
+}
+
+execConfigureTraceSWO()
+{
+  __var value;
+  
+  value = __readMemory32(0x40023810, "Memory");
+  value &= ~0x00000002;                        // bit4 release GPIOB reset
+  __writeMemory32(value, 0x40023810, "Memory");
+
+  value = __readMemory32(0x40023830, "Memory");
+  value |= 0x00000002;                        // bit1 Enable GPIOB  clock
+  __writeMemory32(value, 0x40023830, "Memory");
+
+  value = __readMemory32(0xE0042004, "Memory");
+  value &= ~0xE0;
+  value |= 0x20;  // bit 7,6,5  TRACE_MODE=00 TRACE_IOEN=1
+  __writeMemory32(value, 0xE0042004, "Memory");
+  
+  // Configure GPIOB  3 as AF
+  value = __readMemory32(0x40020400, "Memory");
+  value &= ~0x000000C0;
+  value |= 0x00000080;                        
+  __writeMemory32(value, 0x40020400, "Memory");
+  
+  // Configure GPIOB 3 output type push-pull
+  value = __readMemory32(0x40020404, "Memory");
+  value &= ~0x00000008;
+  __writeMemory32(value, 0x40020404, "Memory");
+  
+  // Configure GPIOB 3 No pull-up, pull-down
+  value = __readMemory32(0x4002040C, "Memory");
+  value &= ~0x000000C0;
+  __writeMemory32(value, 0x4002040C, "Memory");
+  
+  // Configure GPIOB 3 as High Speed
+  value = __readMemory32(0x40020408, "Memory");
+  value |= 0x000000C0;
+  __writeMemory32(value, 0x40020408, "Memory");
+  
+  // Enable mode AF0 for GPIOB 3
+  value = __readMemory32(0x40020420, "Memory");
+  value &= ~0x0000F000;
+  __writeMemory32(value, 0x40020420, "Memory"); 
+}
+
+unlockFlash()
+{
+  // unlock Flash program and erase controller
+
+  if(0x80000000 & __readMemory32(0x40023C10,"Memory"))
+  {
+    __message "Unlocking FLASH";
+    
+    __writeMemory32(0x45670123, 0x40023C04, "Memory"); // FLASH->FKEYR = FLASH_KEY1;
+    __writeMemory32(0xCDEF89AB, 0x40023C04, "Memory"); // FLASH->FKEYR = FLASH_KEY2;
+    __writeMemory32(0xFFFFFFF8 & __readMemory32(0x40023C00,"Memory"), 0x40023C00, "Memory"); // Flash 0 wait state
+
+  }
+  else
+  {
+     __message "FLASH is already unlocked";
+  }
+
+}
+
+_ExecDeviceExecutionStarted()
+{
+  if (__driverType("ijet") || __driverType("cmsisdap"))
+  {
+    // Allow debugging in power saving modes.
+    
+    __var dbgmcu_cr;
+
+    dbgmcu_cr = __readMemory32(0xE0042004, "Memory");
+
+    if ((dbgmcu_cr & 0x7) != 0x7) {
+      
+      dbgmcu_cr |= 7; // set DBGMCU_CR.DBG_SLEEP, DBG_STOP and DBG_STANDBY.
+      
+      __writeMemory32(dbgmcu_cr, 0xE0042004, "Memory");
+      __message "DBGMCU_CR set to inhibit sleep-mode while debugging";
+    }
+  }
+}
+
+lockFlash()
+{
+  // lock Flash program and erase controller
+  
+  if(!(0x80000000 & __readMemory32(0x40023C10,"Memory")))
+  {
+    __message "Locking FLASH";
+    
+    __var temp_cr;
+    temp_cr = __readMemory32(0x40023C10,"Memory");
+    
+    __writeMemory32(temp_cr | 0x80000000, 0x40023C10, "Memory"); // Set lock bit;
+  
+  }
+  else
+  {
+    __message "FLASH is already locked";
+  }
+
+}
+
+setOptionBytesWriteEnable()
+{
+  //Write enable for option bytes area
+
+  if(0x1 & __readMemory32(0x40023C14,"Memory"))
+  {
+  
+    unlockFlash();
+  
+    __writeMemory32(0x08192A3B, 0x40023C08, "Memory"); // FLASH->OPTKEYR = FLASH_OPTKEY1;
+    __writeMemory32(0x4C5D6E7F, 0x40023C08, "Memory"); // FLASH->OPTKEYR = FLASH_OPTKEY2; 
+    
+    __message "Option bytes write enabled";
+  
+  }
+
+}
+
+
+readProtectionEnable()
+{
+// NOTICE
+// This function will set read protection level 1, which can be disabled.
+// Protection level 2 is irreversible and makes the JTAG interface permanently inoperable.
+// See "STM32F40xxx and STM32F41xxx Flash programming manual" for details.
+
+
+  if ((0x0000FF00 & __readMemory32(0x40023C14,"Memory")) == 0xAA00)
+  {
+  
+    setOptionBytesWriteEnable();
+    
+    __message "Setting FLASH readout protection level 1";
+    
+    __var temp_opt;
+    
+    temp_opt = 0xFFFF00FF & __readMemory32(0x40023C14,"Memory");
+    __writeMemory32(temp_opt , 0x40023C14, "Memory"); // Set RDP register bits to 0x00
+    __writeMemory32(0x2 | temp_opt , 0x40023C14, "Memory"); // Set OPTSTRT bit
+    
+    while(0x10000 & __readMemory32(0x40023C0C,"Memory"));  // Wait while FLASH busy
+    
+    __hwReset(0); // Reset to make changes take effect
+  
+  }
+  else
+  {
+    __message "Readout protection already set";
+  }
+  
+}
+
+
+readProtectionDisable()
+{
+
+  if((0x0000FF00 & __readMemory32(0x40023C14,"Memory")) == 0xCC00)
+  {
+  
+    //This will never happen because we can't read if the device is locked anyway
+    __message "This device is permanently locked in RDP level 2 protection, it cannot be disabled";
+    
+  }
+  else if ((0x0000FF00 & __readMemory32(0x40023C14,"Memory")) != 0xAA00)
+  {
+
+    setOptionBytesWriteEnable();
+    
+    __message "Setting FLASH readout protection level 0 (disabled)";
+  
+    __var temp_opt;
+    
+    temp_opt = 0xFFFF00FF & __readMemory32(0x40023C14,"Memory");
+    temp_opt |= 0xAA00;
+ 
+    __writeMemory32(temp_opt , 0x40023C14, "Memory"); // Set RDP register bits to 0xAA
+    __writeMemory32(0x2 | temp_opt , 0x40023C14, "Memory"); // Set OPTSTRT
+    
+    while(0x10000 & __readMemory32(0x40023C0C,"Memory"))
+    {
+    
+      __delay(100);
+    
+    }  // Wait while FLASH busy
+    
+    __hwReset(0); // Reset to make changes take effect
+  
+  }
+  else
+  {
+    __message "Readout protection already reset";
+  }
+  
+}
+
+
+getPersistentQuickLaunchMacros()   // <-- Reserved name, debugger calls it to populate QuickLaunch view.
+{
+  __message "getPersistentQuickLaunchMacros";
+  __var macs;
+  
+  macs = "unlockFlash()";
+  macs += ";lockFlash()";
+  macs += ";readProtectionDisable()";
+  macs += ";readProtectionEnable()";
+  macs += ";setOptionBytesWriteEnable()";
+  
+  return macs;
+}

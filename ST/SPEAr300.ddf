@@ -1,0 +1,31 @@
+
+;; Memory information ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; 
+;; Used to define address zones within the ARM address space (Memory). 
+;;
+;;   Name      may be almost anything
+;;   AdrSpace  must be Memory
+;;   StartAdr  start of memory block
+;;   EndAdr    end of memory block
+;;   AccType   type of access, read-only (R), read-write (RW) or SFR (W)
+
+[Memory]
+;;         Name             AdrSpace    StartAdr    EndAdr      AccType   Width
+Memory =  Periph0          Memory      0x50000000  0x7FFFFFFF  W  
+Memory =  Periph1          Memory      0x94000000  0xAFFFFFFF  W  
+Memory =  Periph2          Memory      0xD0000000  0xD17FFFFF  W  
+Memory =  Periph3          Memory      0xD9000000  0xD97FFFFF  W  
+Memory =  Periph4          Memory      0xE0000000  0xE28FFFFF  W  
+Memory =  Periph5          Memory      0xF0000000  0xF11FFFFF  W  
+Memory =  Periph6          Memory      0xFC000000  0xFCB7FFFF  W  
+Memory =  ExtMem           Memory      0x00000000  0x3FFFFFFF  RW 
+Memory =  ExtDev           Memory      0x80000000  0x93FFFFFF  W  
+Memory =  RAM0             Memory      0xD2800000  0xD280DFFF  RW 
+Memory =  RAM1             Memory      0xF8000000  0xFBFFFFFF  RW 
+Memory =  ROM              Memory      0xFF000000  0xFFFFFFFF  R  
+
+TrustedRanges = true
+UseSfrFilter = true
+
+[SfrInclude]
+File = iospear300.ddf

@@ -1,0 +1,682 @@
+// Version 1.1  (released with 8.20.2)
+//      ETM/ETB/SWO from Cortex-M7 are all working.
+//      It was developped/verified on STM32H743I-EVAL board.
+//      ETM works OK on 133MHz CPU (PLL1VCO=800 and PLLR=3).
+//      SWO works OK with PLLR=3 and SWODIR=2 (I-jet-Trace)
+//
+// TODO: Accesses to most components should be done via AP2 - no time for it ...
+//       It will allow re-configuration when CPU is running.
+
+__var clock_ok;   // Valid trace clock (recently seen)
+__var MM_SWO;     // Initialized to 0x2
+__var MM_ETB;     // Initialized to 0x4
+__var MM_ETM;     // Initialized to 0x10
+
+initConst()     // Macro to initialize all constant values
+{
+  if (MM_SWO != 0)
+  {
+    return;     // We already did it ...
+  }
+  
+  MM_SWO = 0x2;
+  MM_ETB = 0x4;
+  MM_ETM = 0x10;
+}
+
+_ExecDeviceCoreConnect()
+{
+  __var value, mask, wanted;
+  
+  /*
+    Use direct i-jet commands (because it is in early connection phase)
+    This macro is called for 'ijet' and 'cmsisdap' drivers only.
+  */
+  
+  /* DBGMCU is at 0xE00E1000 address on APB-D (AP2) */
+  value = __probeCmd("dap.r 0xE00E1004", 2);
+  
+  mask   = 0x10700187;    // Mask for all bits in DBGMCU_CR
+  // wanted = 0x00700187;    // SWO is NOT working ...
+  // wanted = 0x00700087;    // SWO is NOT working ...
+  wanted =  0x00700107;    // SWO is working OK ...
+  // wanted = 0x00700007;    // SWO is working OK
+  // wanted = 0;   // After reset ...
+  
+  // Make sure all bits we want are set ...
+  if((value & mask) != (wanted & mask))
+  {
+    //set DBGMCU_CR.D3DBGCKEN and D1DBGCKEN now the debugger 
+    //can read System ROM table 2.
+    
+    wanted = (value & ~mask) | (wanted & mask); // Compine 'wanted' as new value
+    
+    __message "DMAC/CoreConnect: Changed DBGMCU_CR (old=0x", value:%x, " new=0x", wanted:%x, ")\n";
+    
+    __probeCmd("dap.w 0xE00E1004", wanted, 2);
+  }
+}
+
+/*
+
+  ETM path:
+  
+    CM7.ETM     =>  CSTF.In0
+    CM7.DWT/ITM =>  CSTF.In1
+                    CSTF.Out    => TMC/ETF.In
+                                   TMC/ETF.Out => TPIU
+
+  ETB path:
+  
+    CM7.ETM     =>  CSTF.In0
+    CM7.DWT/ITM =>  CSTF.In1
+                    CSTF.Out    => TMC/ETB
+
+  SWO path:
+  
+    CM7.DWT/ITM =>  SWTF.In0
+                    SWTF.Out    => SWO
+
+*/
+
+execPreConfigureTrace(modemask)
+{
+  initConst();  // Make sure all '#define-like' variables are initialized
+  
+  __var SWTF_in, CSTF_in;
+  
+  // Note "0*" below may be changed to "1*" to select other functional inputs
+  SWTF_in = 0x1 << (0*1);   // Funnel inputs for SWO (B0=DWT/ITM)
+  CSTF_in = 0x3 << (0*2);   // Funnel inputs for ETM/ETB (B0=ETM, B1=DWT/ITM)
+  
+  // Configure base addresses (depending on mode)
+  // Some of it can be done via auto-detect (ROM scan), but I do not want 
+  // initially to rely on it - it can be done later once 'everything'
+  // will work (with 'manual' settings)
+  
+  __message "DMAC/execPreConfigureTrace: modemask=0x", modemask:%x;
+  
+  if (modemask & MM_SWO)
+  {
+    // SWO mode requested (SWO options are a little tricky)
+    // These are passed as-is to SWO module
+    // __probeCmd("trace -opt +baseswo=0xE00E3002,baseitm=0xE000_0000");
+    __probeCmd("trace -opt +swoinit(baseswo=0xE00E_3002,baseitm=0xE000_0000)");
+    
+    if (modemask & MM_ETB)
+    {
+      __message "DMAC/Trace: SWO and ETB in the same time will be supported in future (SWO trace will be enabled)\n";
+      // If SWO and ETB are both enabled, make sure ETB is not set
+      modemask &= ~MM_ETB;
+    }
+  }
+  
+  if (modemask & MM_ETB)
+  {
+    // ETB mode requested (can be together with SWO)
+    __probeCmd("trace -opt +baseetm=0xE0041002,baseetb=0xE00F4002");
+  }
+  
+  if (modemask & MM_ETM)
+  {
+    // ETM mode requested
+    __probeCmd("trace -opt +baseetm=0xE0041002,basetpiu=0xE00F5002");
+  }
+  
+  // Now let's configure all needed trace clocks/funnels
+  
+  if (modemask & MM_SWO)
+  {
+    __message "DMAC/Trace: Configuring SWTF for DWT/ITM from Cortex-M7 ...\n";
+    // Configure SWTF (for SWO trace)
+    // __probeCmd("+d32 (__AP2)0xE00E4000");
+    __probeCmd("s32 (__AP2)0xE00E4000 = ", 0x300 | SWTF_in);
+    // __probeCmd("+d32 (__AP2)0xE00E4000");
+  }
+  
+  if (modemask & (MM_ETB | MM_ETM))
+  {
+    __message "DMAC/Trace: Configuring CSTF for ETM/ETB from Cortex-M7 ...\n";
+    // Configure CSTF (for both ETM and ETB trace)
+    // __probeCmd("+d32 (__AP2)0xE00F3000");
+    __probeCmd("s32 (__AP2)0xE00F3000 = ", 0x300 | CSTF_in);
+    // __probeCmd("+d32 (__AP2)0xE00F3000");
+  }
+  
+  if (modemask & MM_ETM)
+  {
+    __message "DMAC/Trace: Enabling ETF FIFO mode ...\n";
+  
+    // Enable ETF FIFO mode
+    __probeCmd("s32 (__AP2)0xE00F4028 = 2");
+    __probeCmd("s32 (__AP2)0xE00F4020 = 1");
+  }
+  
+  // __probeCmd("trace -opt +log=0x11"); // Logging from beginning (for debugging)
+  __probeCmd("trace -mode ", modemask); // Configure trace (if it was tripped above ...)
+  
+  return modemask;
+}
+
+CheckTraceClock()
+{
+  __var isETM;
+  
+  isETM = 0;
+
+  if (__driverType("ijet") || __driverType("cmsisdap"))
+  {
+    if (__getTraceProperty(2) & MM_ETM) isETM = 1;
+  }
+
+
+  __var value;
+  
+  // PDF (RM0433) 8.7.5 RCC Clock Configuration Register (RCC_CFGR)
+  __var clock_src;
+  
+  clock_src = __readMemory32(0x58024410,"Memory");
+  
+  clock_src &= 0x38;    // 3bits
+  clock_src |= 0x100;   // Marker, so initial 0 is never set ...
+  
+  if (clock_ok != clock_src)
+  {
+    if (clock_src == (0x100 | 0x18))
+    {
+      __message "DMAC/Trace: PLL1 clock as CPU clock detected ...\n";
+      // __probeCmd("+probe etmclk");
+      
+      // PDF: 8.7.11 RCC PLL1 Dividers Configuration Register (RCC_PLL1DIVR)
+      value = __readMemory32(0x58024430,"Memory");
+      
+      value = ((value >> 24) & 0x7F) + 1;
+      
+      if (isETM && (value < 2))
+      {
+        __message "DMAC/Trace: PLL1.DIVR=", value, " - trace clock may be too fast - ******************\n";
+        __message "DMAC/Trace: Please adjust PLL1.DIVR value accordingly.\n";
+      }
+      else
+      {
+        __message "DMAC/Trace: PLL1.DIVR=", value, " is used as trace clock divider\n";
+      }
+    }
+    else
+    {
+      __message "DMAC/Trace: Other than PLL1 clock as CPU clock detected ...\n";
+      __message "DMAC/Trace: Trace clock should be 1/2 of CPU clock frequency.\n";
+      // __probeCmd("+probe etmclk");
+    }
+    
+    if (isETM)
+    {
+      // Do it twice as first measurment may not be stable ...
+      value = __probeCmd("probe etmclk");
+      value = __probeCmd("probe etmclk");
+      
+      if (value <= 2)   // Less than 2KHz?
+      {
+        __message "DMAC/Trace: Trace clock not present or unstable ****************\n";
+      }
+      else
+      {
+        __message "DMAC/Trace: Trace clock measured as ~", value / 1000, "MHz.\n";
+      }
+    }
+    
+    clock_ok = clock_src;       // Prevent doing it next time ...
+  }
+}
+
+execConfigureTraceETM()
+{
+  __var modemask;
+  
+  if (!(__driverType("ijet") || __driverType("cmsisdap"))) {
+    __message "Warning: STM32H7 trace require I-jet/I-jet-Trace/CMSISDAP probe";
+    return;
+  }
+
+  modemask = __getTraceProperty(2);     // Get mask of selected modes
+
+  if (modemask & MM_SWO)
+  {
+    // Enable SWO trace
+    // Only 'execConfigureTraceETM' is called if both SWO+ETB are active)
+    execConfigureTraceSWO();
+    
+    if (modemask & MM_ETB)
+    {
+      // Both ETB and SWO are enabled
+      // __message "DMAC/Trace: Configuring CSTF for ETB from Cortex-M7 ...\n";
+      // __probeCmd("+d32 (__AP2)0xE00F3000");
+      __probeCmd("s32 (__AP2)0xE00F3000 = ", 0x301);   // No ITM/DWT to ETB ...
+    }
+    
+    return;
+  }
+  
+  if (modemask & MM_ETB)
+  {
+    // Plain ETB mode does not require any extra settings each time ...
+    return;
+  }
+  
+  __var value;
+  
+  __var changed;
+  changed = 0;   // No change ...
+  
+  // Enable I/O compensation cell (not sure why ...)
+  if (1)
+  {
+    // RCC_APB4ENR enable SYSCFG clock
+    value = __readMemory32(0x580244F4,"Memory");
+    if ((value & (1<<1)) == 0)
+    {
+      changed++;
+      __message "DMAC/Trace: Enabling SYSCFG clock ...\n";
+      __writeMemory32(value | (1<<1), 0x580244F4,"Memory");
+    }
+  
+    // RCC_APB4RSTR release SYSCFG reset
+    value = __readMemory32(0x5802449C,"Memory");
+    if ((value & (1<<1)) != 0)
+    {
+      changed++;
+      __message "DMAC/Trace: Releasing SYSCFG from reset ...\n";
+      __writeMemory32(value & ~(1<<1), 0x5802449C,"Memory");
+    }
+
+    // SYSCFG_CCCSR
+    value = __readMemory32(0x58000420,"Memory");
+    if ((value & 0x1) == 0)
+    {
+      changed++;
+      __message "DMAC/Trace: Enabling IO compensation cell ...\n";
+      __writeMemory32(value | 0x1, 0x58000420, "Memory");
+    }
+  }
+  
+  if (1)
+  {
+    //RCC_AHB4ENR enable GPIOE clock
+    value = __readMemory32(0x580244E0, "Memory");
+    if ((value & (1<<4)) == 0)
+    {
+      changed++;
+      __message "DMAC/Trace: Enabling GPIOE clock ...\n";
+      __writeMemory32(value | (1<<4), 0x580244E0, "Memory");
+    }
+    
+    //RCC_AHB4RSTR release GPIOE reset
+    value = __readMemory32(0x58024488, "Memory");
+    if ((value & (1<<4)) != 0)
+    {
+      changed++;
+      __message "DMAC/Trace: Releasing GPIOE reset ...\n";
+      __writeMemory32(value & ~(1<<4), 0x58024488, "Memory");
+    }
+  }
+
+   // This part is to provide variable speed settings (for GPIO)
+   // Not always highest speed is the best ...
+  __var speed, speed5, mask5_1, mask5_2, mask5_4;
+
+  // speed = 2;    //      2-high (may be better for slower CPU clocks)
+  speed   = 3;    //      3-very high (works better for max speed 133Mhz)
+  speed5  = speed | (speed << 2) | (speed << 4) |(speed << 6) |(speed << 8);
+  mask5_1 = 0x01F;
+  mask5_2 = 0x3FF;
+  mask5_4 = 0xFFFFF;
+
+  if ( __getTracePortSize() == 1 )
+  {
+    speed5      &= 0xF;      // Extract 2-bit (speed and masks)
+    mask5_1     &= 0x3;
+    mask5_2     &= 0xF;
+    mask5_4     &= 0xFF;
+  } 
+  else
+  if ( __getTracePortSize() == 2 )
+  {
+    speed5      &= 0x3F;      // Extract 3-bit (speed and mask)
+    mask5_1     &= 0x7;
+    mask5_2     &= 0x3F;
+    mask5_4     &= 0xFF;
+  } 
+  else   // default 4 bits
+  {
+    // Set by default
+  }
+  
+  // Shift to appropriate bit-position ...
+  speed5  <<= 4;
+  mask5_1 <<= 2;
+  mask5_2 <<= 4;
+  mask5_4 <<= 8;
+
+  // Configure GPIOE  2,3,4,5,6 as AF
+  value = __readMemory32(0x58021000,"Memory");
+  if ((value & mask5_2) != ((0x2AA << 4) & mask5_2))
+  {
+    changed++;
+    value &= ~mask5_2;
+    value |= 0x2AA << 4;                        
+    __writeMemory32(value,0x58021000,"Memory");
+  }
+     
+  // Configure GPIOE  2,3,4,5,6 output type push-pull
+  value = __readMemory32(0x58021004,"Memory");
+  if ((value & mask5_1) != 0)
+  {
+    changed++;
+    value &= ~mask5_1;
+    __writeMemory32(value,0x58021004,"Memory");
+  }
+
+  // Configure GPIOE  2,3,4,5,6  No pull-up, pull-down
+  value = __readMemory32(0x5802100C, "Memory");
+  if ((value & mask5_2) != 0)
+  {
+    changed++;
+    value &= ~mask5_2;
+    __writeMemory32(value,0x5802100C,"Memory");
+  }
+   
+  // Enable mode AF0 for GPIOE 2,3,4,5,6
+  value = __readMemory32(0x58021020,"Memory");
+  if ((value & mask5_4) != 0)
+  {
+    changed++;
+    value &= ~mask5_4;
+    __writeMemory32(value,0x58021020,"Memory");
+  }
+  
+  // Configure GPIOE 2,3[,4,5,6] as defined by 'speed'
+  value = __readMemory32(0x58021008,"Memory");
+  if ((value & mask5_2) != speed5)
+  {
+    changed++;
+    value = (value & mask5_2) | speed5;
+    __writeMemory32(value, 0x58021008, "Memory");
+  }
+  
+  if (changed)
+  {
+    __message "DMAC/Trace: GPIOE 2,3... enabled as ETM (AF0, High Speed)...\n";
+  }
+  
+  CheckTraceClock();
+  
+  return changed;       // Return value not used now, but maybe later
+}
+
+execConfigureTraceSWO()
+{
+  __var changed;        // Display message (at very end)
+  changed = 0;
+  
+  __var value;
+
+   // __writeMemory32(0x00700000,0x5C001004, "Memory");
+ 
+  //RCC_AHB4ENR enable GPIOB clock
+  value = __readMemory32(0x580244E0, "Memory");
+  if ((value & (1<<1)) == 0)
+  {
+    changed++;
+    __message "DMAC/Trace: Enabling GPIOB clock ...\n";
+    __writeMemory32(value | (1<<1), 0x580244E0, "Memory");
+  }
+  
+  //RCC_AHB4RSTR release GPIOB reset
+  value = __readMemory32(0x58024488, "Memory");
+  if ((value & (1<<1)) != 0)
+  {
+    changed++;
+    __message "DMAC/Trace: Releasing GPIOB reset ...\n";
+    __writeMemory32(value & ~(1<<1), 0x58024488, "Memory");
+  }
+
+  // Configure GPIOB  3 as AF
+  value = __readMemory32(0x58020400,"Memory");
+  if ((value & 0xC0) != 0x80)
+  {
+    changed++;
+    value &= ~0x000000C0;
+    value |= 0x00000080;                        
+    __writeMemory32(value,0x58020400,"Memory");
+  }
+  
+  // Configure GPIOB 3 output type push-pull
+  value = __readMemory32(0x58020404,"Memory");
+  if ((value & 0x8) != 0)
+  {
+    changed++;
+    value &= ~0x00000008;
+    __writeMemory32(value,0x58020404,"Memory");
+  }
+
+  // Configure GPIOB 3 No pull-up, pull-down
+  value = __readMemory32(0x5802040C,"Memory");
+  if ((value & 0xC0) != 0)
+  {
+    changed++;
+    value &= ~0x000000C0;
+    __writeMemory32(value,0x5802040C,"Memory");
+   }
+  
+  // Configure GPIOB 3 as High Speed
+  value = __readMemory32(0x58020408,"Memory");
+  if ((value & 0xC0) != 0xC0)
+  {
+    changed++;
+    value |= 0x000000C0;
+    __writeMemory32(value,0x58020408,"Memory");
+  }
+
+  // Enable mode AF0 for GPIOB 3
+  value = __readMemory32(0x58020420,"Memory");
+  if (value & 0xF000)
+  {
+    changed++;
+    value &= ~0x0000F000;
+    __writeMemory32(value,0x58020420,"Memory"); 
+  }
+  
+  if (changed)
+  {
+    __message "DMAC/Trace: GPIOB 3 port enabled as SWO (AF0, High Speed)...\n";
+  }
+
+  CheckTraceClock();
+
+  return changed;       // Return value not used now, but maybe later
+}
+
+_ExecDeviceExecutionStarted()
+{
+  return;
+
+  if (__driverType("ijet") || __driverType("cmsisdap"))
+  {
+    // Allow debugging in power saving modes.
+    
+    __var dbgmcu_cr;
+    
+    /* DBGMCU is at 0x5C001000 address on the System Bus */
+    dbgmcu_cr = __readMemory32(0x5C001004, "Memory");
+
+    if (dbgmcu_cr &((0x3<<7) | (0x7<<0)) != ((0x3<<7) | (0x7<<0))) {
+    
+      // set DBGMCU_CR.DBGSTBY_D3, DBGSTOP_D3,
+      //     DBGSTBY_D1, DBGSTOP_D1 and DBGSLEEP_D1.
+      dbgmcu_cr |= (0x3<<7) | (0x7<<0);
+      
+      __writeMemory32(dbgmcu_cr, 0x5C001004, "Memory");
+      __message "DBGMCU_CR set to inhibit sleep-mode while debugging";
+    }
+  }
+}
+
+unlockFlash()
+{
+  // unlock Flash program and erase controller
+
+  if(0x00000001 & __readMemory32(0x5200200C,"Memory"))
+  {
+    __message "Unlocking FLASH";
+    
+    __writeMemory32(0x45670123, 0x52002004, "Memory"); // FLASH->FKEYR = FLASH_KEY1;
+    __writeMemory32(0xCDEF89AB, 0x52002004, "Memory"); // FLASH->FKEYR = FLASH_KEY2;
+    __writeMemory32(0xFFFFFFF8 & __readMemory32(0x52002000,"Memory"), 0x52002000, "Memory"); // Flash 0 wait state
+
+  }
+  else
+  {
+     __message "FLASH is already unlocked";
+  }
+
+}
+
+lockFlash()
+{
+  // lock Flash program and erase controller
+  
+  if(!(0x00000001 & __readMemory32(0x5200200C,"Memory")))
+  {
+    __message "Locking FLASH";
+    
+    __var temp_cr;
+    temp_cr = __readMemory32(0x5200200C,"Memory");
+    
+    __writeMemory32(temp_cr | 0x00000001, 0x52002010, "Memory"); // Set lock bit;
+  
+  }
+  else
+  {
+    __message "FLASH is already locked";
+  }
+
+}
+
+setOptionBytesWriteEnable()
+{
+  //Write enable for option bytes area
+
+  if(0x1 & __readMemory32(0x52002018,"Memory"))
+  {
+  
+    unlockFlash();
+  
+    __writeMemory32(0x08192A3B, 0x52002008, "Memory"); // FLASH->OPTKEYR = FLASH_OPTKEY1;
+    __writeMemory32(0x4C5D6E7F, 0x52002008, "Memory"); // FLASH->OPTKEYR = FLASH_OPTKEY2; 
+    
+    __message "Option bytes write enabled";
+  
+  }
+
+}
+
+
+readProtectionEnable()
+{
+// NOTICE
+// This function will set read protection level 1, which can be disabled.
+// Protection level 2 is irreversible and makes the JTAG interface permanently inoperable.
+// See "STM32F40xxx and STM32F41xxx Flash programming manual" for details.
+
+
+  if ((0x0000FF00 & __readMemory32(0x5200201C,"Memory")) == 0xAA00)
+  {
+  
+    setOptionBytesWriteEnable();
+    
+    __message "Setting FLASH readout protection level 1";
+    
+    __var temp_opt;
+    
+    temp_opt = 0xFFFF00FF & __readMemory32(0x5200201C,"Memory");
+    __writeMemory32(temp_opt , 0x52002020, "Memory"); // Set RDP bits in PRG register 
+    
+    temp_opt = __readMemory32(0x52002018,"Memory");
+    __writeMemory32(0x2 | temp_opt , 0x52002018, "Memory"); // Set OPTSTRT
+    
+    while(0x1 & __readMemory32(0x5200201C,"Memory"))
+    {
+    
+      __delay(100);
+    
+    }  // Wait while FLASH busy
+    
+    __hwReset(0); // Reset to make changes take effect
+  
+  }
+  else
+  {
+    __message "Readout protection already set";
+  }
+  
+}
+
+
+readProtectionDisable()
+{
+
+  if((0x0000FF00 & __readMemory32(0x5200201C,"Memory")) == 0xCC00)
+  {
+  
+    //This will never happen because we can't read if the device is locked anyway
+    __message "This device is permanently locked in RDP level 2 protection, it cannot be disabled";
+    
+  }
+  else if ((0x0000FF00 & __readMemory32(0x5200201C,"Memory")) != 0xAA00)
+  {
+
+    setOptionBytesWriteEnable();
+    
+    __message "Setting FLASH readout protection level 0 (disabled)";
+  
+    __var temp_opt;
+    
+    temp_opt = 0xFFFF00FF & __readMemory32(0x5200201C,"Memory");
+    temp_opt |= 0xAA00;
+ 
+    __writeMemory32(temp_opt , 0x52002020, "Memory"); // Set RDP bits in PRG register 
+    
+    temp_opt = __readMemory32(0x52002018,"Memory");
+    __writeMemory32(0x2 | temp_opt , 0x52002018, "Memory"); // Set OPTSTRT
+    
+    while(0x1 & __readMemory32(0x5200201C,"Memory"))
+    {
+    
+      __delay(100);
+    
+    }  // Wait while FLASH busy
+    
+    __hwReset(0); // Reset to make changes take effect
+  
+  }
+  else
+  {
+    __message "Readout protection already reset";
+  }
+  
+}
+
+
+getPersistentQuickLaunchMacros()   // <-- Reserved name, debugger calls it to populate QuickLaunch view.
+{
+  __message "getPersistentQuickLaunchMacros";
+  __var macs;
+  
+  macs = "unlockFlash()";
+  macs += ";lockFlash()";
+  macs += ";readProtectionDisable()";
+  macs += ";readProtectionEnable()";
+  macs += ";setOptionBytesWriteEnable()";
+  
+  return macs;
+}
