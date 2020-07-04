@@ -1,0 +1,7 @@
+build:
+  script:
+  - cd /media/storage/gitlab/
+  after_script:
+  - cd /media/storage/gitlab/
+  - sudo rm -rf SVD_Files
+  - git clone http://192.168.109.15/root/SVD_Files.git
